@@ -1,0 +1,17 @@
+{
+  "name": "ePaperDisplay",
+  "device_id": "ePaperDisplay",
+  "wifi": {
+    "ssid": "yourWiFi",
+    "password": "yourPassword"
+  },
+  "mqtt": {
+    "host": "192.168.20.2",
+    "port": 1883,
+    "base_topic": "homie/",
+    "auth": false
+  },
+  "ota": {
+    "enabled": true
+  }
+}
