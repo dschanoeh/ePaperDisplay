@@ -13,7 +13,7 @@
 
 unsigned char IMAGE_BUFFER[DISPLAY_WIDTH * DISPLAY_HEIGHT / 8]{0x00};
 uint32_t lastUpdate = -1;  // in ms
-uint32_t sleepTime = 0;    // in ms
+uint32_t sleepTime = -1;    // in ms
 String imageURL;
 uint8_t retries;
 
