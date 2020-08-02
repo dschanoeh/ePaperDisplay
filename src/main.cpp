@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include "esp_system.h"
 #include "mbedtls/md.h"
 #include "version.h"
 #include "waveshare/epd7in5_V2.h"
@@ -21,10 +22,15 @@ uint8_t retries;
 mbedtls_md_context_t ctx;
 mbedtls_md_type_t md_type = MBEDTLS_MD_SHA256;
 byte lastHash[32]{0x00};
-
-HTTPClient c;
+HTTPClient http;
 AsyncMqttClient mqttClient;
 Epd epd;
+hw_timer_t *timer = NULL;
+
+void IRAM_ATTR resetModule() {
+  ets_printf("reboot\n");
+  esp_restart();
+}
 
 /* updateImage() will attempt do download and display the image.
  * It returns 0 if the operation is deemed successful.
@@ -33,11 +39,14 @@ uint8_t updateImage() {
   if (imageURL.isEmpty()) {
     return -1;
   }
-  HTTPClient http;
-  http.begin(imageURL);
+  bool beginSuccess = http.begin(imageURL);
+  if(!beginSuccess) {
+    Homie.getLogger() << "http.begin failed" << endl;
+  }
+
   int httpCode = http.GET();
   Homie.getLogger() << "Got return code: " << httpCode << endl;
-  if (httpCode == 200) {
+  if (httpCode == HTTP_CODE_OK) {
     String data = http.getString();
     http.end();
     Homie.getLogger() << "Received image data with a length of: "
@@ -70,10 +79,11 @@ uint8_t updateImage() {
         }
 
         // Initialize the display
-        Homie.getLogger() << "Initializing display..." << endl;
+        Homie.getLogger() << "Resetting display..." << endl;
         // Reset and delay seem to be required prior to epd.Init()...
         epd.Reset();
         delay(100);
+        Homie.getLogger() << "Initializing display..." << endl;
         if (epd.Init() != 0) {
           Homie.getLogger() << "Display initialization failed." << endl;
           return -1;
@@ -159,7 +169,7 @@ void onHomieEvent(const HomieEvent &event) {
     case HomieEventType::MQTT_PACKET_ACKNOWLEDGED:
       break;
     case HomieEventType::READY_TO_SLEEP:
-      lastUpdate = -1;
+      timerAlarmDisable(timer);
       Homie.doDeepSleep(1000 * sleepTime);
       break;
     case HomieEventType::SENDING_STATISTICS:
@@ -170,12 +180,23 @@ void onHomieEvent(const HomieEvent &event) {
 void setup() {
   Serial.begin(115200);
   Homie_setFirmware(FW_NAME, FW_VERSION);
+  Homie.disableLedFeedback();
   Homie.onEvent(onHomieEvent);
+
+  // https://github.com/espressif/arduino-esp32/issues/841
+  ets_printf("Timer setup\n");
+  timer = timerBegin(0, 80, true);  // timer 0, div 80
+  timerAttachInterrupt(timer, &resetModule, true);
+  timerAlarmWrite(timer, WATCHDOG_TIMEOUT, false);  // set time in us
+  timerAlarmEnable(timer);                 // enable interrupt
+
   Homie.setup();
 }
 
 void loop() {
   Homie.loop();
+
+  timerWrite(timer, 0);
 
   /* As soon as Homie is connected, we'll watch if we received MQTT
    * configuration data. If so, we'll try to update the image and got to sleep
@@ -188,12 +209,14 @@ void loop() {
       uint8_t ret = updateImage();
       if(ret == 0) {
         retries = 0;
+        lastUpdate = -1;
         Homie.prepareToSleep();
       } else {
         retries++;
         if(retries >= MAX_RETRIES) {
           Homie.getLogger() << "Exceeded number of retries - giving up." << endl;
           retries = 0;
+          lastUpdate = -1;
           Homie.prepareToSleep();
         }
       }

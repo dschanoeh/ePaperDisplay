@@ -16,3 +16,6 @@
 #define DC_PIN      17
 #define CS_PIN      SS
 #define BUSY_PIN    4
+
+// Watchdog timeout (in us) for reset in case the software hangs
+#define WATCHDOG_TIMEOUT 10000000
